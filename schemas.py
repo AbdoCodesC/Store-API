@@ -40,7 +40,7 @@ class TagAndItemSchema(Schema):
   
 class UserSchema(Schema):
   id = fields.Int(dump_only=True)
-  username = fields.Str(required=True)
+  email = fields.Str(required=True)
    # load only = true does not return password when deserializing data
   password = fields.Str(required=True, load_only=True)
   

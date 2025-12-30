@@ -1,4 +1,3 @@
-import datetime
 from db import db
 from models import UserModel, TokenBlocklist
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -7,6 +6,7 @@ from flask_smorest import Blueprint, abort
 from schemas import UserSchema
 from passlib.hash import pbkdf2_sha256 as sha
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt, create_refresh_token
+from utils.mailgun import send_message
 
 # Blueprint(name, import_name, **kwargs)
 blp = Blueprint('Users','users', __name__, description="Operations on users")
@@ -34,10 +34,10 @@ class User(MethodView):
   def put(self, user_data, user_id):
     user = UserModel.query.get(user_id)
     if user:
-      user.username = user_data['username']
+      user.email = user_data['email']
       user.password = sha.using(rounds=10).hash(user_data['password'])
     else:
-      user = UserModel(id=user_id, username=user_data['username'], password=sha.using(rounds=10).hash(user_data['password'])) # create new user if not exists
+      user = UserModel(id=user_id, email=user_data['email'], password=sha.using(rounds=10).hash(user_data['password'])) # create new user if not exists
     try:
       db.session.add(user)
       db.session.commit()
@@ -55,23 +55,29 @@ class UserList(MethodView):
   @blp.response(201, description="User created", example={"message": "User created successfully."})
   @blp.arguments(UserSchema)
   def post(self, user_data):
-    user = UserModel(username=user_data['username'], password=sha.using(rounds=10).hash(user_data['password']))
+    user = UserModel(email=user_data['email'], password=sha.using(rounds=10).hash(user_data['password']))
     
     try:
       db.session.add(user)
       db.session.commit()
+      try:
+        response = send_message(user.email, 'Welcome', 'Thank you for registering.')
+        if response.status_code != 200:
+          print(f"Failed to send email: {response.status_code} - {response.text}")
+      except Exception as e:
+        print(f"Email sending error: {str(e)}")
       return {"message": "User created successfully."}, 201
     except SQLAlchemyError:
       abort(500, message="An error occurred while inserting the user.")
     except IntegrityError:
-      abort(400, message="A user with that username already exists.")
+      abort(400, message="A user with that email already exists.")
   
 @blp.route('/login')
 class UserLogin(MethodView):
   @blp.response(200, description="User login", example={"message": "Login successful."})
   @blp.arguments(UserSchema)
   def post(self, user_data):
-    user = UserModel.query.filter_by(username=user_data['username']).first()
+    user = UserModel.query.filter_by(email=user_data['email']).first()
     try:
       if user and user.compare_password(user_data['password'], user.password):
         access_token = create_access_token(identity=str(user.id), fresh=True)
@@ -88,7 +94,7 @@ class UserLogin(MethodView):
   def get(self):
     user_id = get_jwt_identity()
     user = UserModel.query.get_or_404(int(user_id))
-    return {"message": f"User {user.username} is logged in."}, 200
+    return {"message": f"User {user.email} is logged in."}, 200
   
 # The goal of a refresh token is to keep your user logged in securely without making them re-type their password every 15 minutes.
 # When the access token expires, the client can use the refresh token to obtain a new access token.
@@ -115,3 +121,4 @@ class UserLogout(MethodView):
       return {"message": "Logout successful."}, 200
     except SQLAlchemyError:
       abort(500, message="An error occurred during logout.")  
+      

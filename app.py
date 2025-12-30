@@ -6,6 +6,7 @@ from resources.item import blp as ItemBlueprint
 from resources.store import blp as StoreBlueprint
 from resources.tag import blp as TagBlueprint
 from resources.user import blp as UserBlueprint
+from resources.test_app import blp as AppRunningBlueprint
 from db import db
 from flask_migrate import Migrate
 import os
@@ -69,9 +70,10 @@ def create_app(db_url=None):
   api.register_blueprint(StoreBlueprint)
   api.register_blueprint(TagBlueprint)
   api.register_blueprint(UserBlueprint)
+  api.register_blueprint(AppRunningBlueprint)
 
   return app
 
 if __name__ == '__main__':
   application = create_app()
-  application.run(port=3000, debug=True)
+  application.run(host='0.0.0.0', port=3000, debug=True)
