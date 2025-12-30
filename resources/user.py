@@ -1,13 +1,12 @@
 import datetime
 from db import db
 from models import UserModel, TokenBlocklist
-from flask import jsonify
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from schemas import UserSchema
 from passlib.hash import pbkdf2_sha256 as sha
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt, create_refresh_token
 
 # Blueprint(name, import_name, **kwargs)
 blp = Blueprint('Users','users', __name__, description="Operations on users")
@@ -75,21 +74,33 @@ class UserLogin(MethodView):
     user = UserModel.query.filter_by(username=user_data['username']).first()
     try:
       if user and user.compare_password(user_data['password'], user.password):
-        response = jsonify({"msg": "login successful"})
-        access_token = create_access_token(identity=str(user.id))
-        return {"message": "Login successful.", "access_token": access_token}, 200
+        access_token = create_access_token(identity=str(user.id), fresh=True)
+        refresh_token = create_refresh_token(identity=str(user.id))
+        return {"message": "Login successful.", "access_token": access_token, "refresh_token": refresh_token}, 200
       else:
         abort(401, message="Invalid credentials.")
     except SQLAlchemyError:
       abort(500, message="An error occurred during login.")
       
-  #test: user still logged in
-  @jwt_required() # might cause issue.
+  #test: if user still logged in
+  @jwt_required() 
   @blp.response(200)
   def get(self):
     user_id = get_jwt_identity()
     user = UserModel.query.get_or_404(int(user_id))
     return {"message": f"User {user.username} is logged in."}, 200
+  
+# The goal of a refresh token is to keep your user logged in securely without making them re-type their password every 15 minutes.
+# When the access token expires, the client can use the refresh token to obtain a new access token.
+# This enhances security by limiting the lifespan of access tokens while still providing a seamless user experience.
+@blp.route('/refresh')
+class TokenRefresh(MethodView):
+  @blp.response(200, description="Token refreshed", example={"access_token": "new_access_token"})
+  @jwt_required(refresh=True)
+  def post(self):
+    current_user = get_jwt_identity()
+    new_access_token = create_access_token(identity=current_user, fresh=False)
+    return {"access_token": new_access_token}, 200
       
 @blp.route('/logout')
 class UserLogout(MethodView):

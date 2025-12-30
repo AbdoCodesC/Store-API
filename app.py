@@ -7,15 +7,12 @@ from resources.store import blp as StoreBlueprint
 from resources.tag import blp as TagBlueprint
 from resources.user import blp as UserBlueprint
 from db import db
+from flask_migrate import Migrate
 import os
-import dotenv
-dotenv.load_dotenv()
 from flask_jwt_extended import JWTManager
 
-app = Flask(__name__)
-
-
-def createApp(db_url=None):
+def create_app(db_url=None):
+  app = Flask(__name__)
   app.config['PROPAGATE_EXCEPTIONS'] = True
   app.config['API_TITLE'] = 'Stores REST API'
   app.config['API_VERSION'] = 'v1'
@@ -23,16 +20,15 @@ def createApp(db_url=None):
   app.config['OPENAPI_URL_PREFIX'] = '/'
   app.config['OPENAPI_SWAGGER_UI_PATH'] = '/swagger-ui'
   app.config['OPENAPI_SWAGGER_UI_URL'] = 'https://cdn.jsdelivr.net/npm/swagger-ui-dist/'
-  # sqlalchemy database uri
   app.config['SQLALCHEMY_DATABASE_URI'] = db_url or os.getenv('FLASK_DATABASE_URI', 'sqlite:///data.db')
   app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
   app.config["JWT_SECRET_KEY"] = os.getenv('JWT_SECRET_KEY', 'super-secret-key')  # change this in real apps!
+  print('JWT secret key: ', os.getenv('JWT_SECRET_KEY', 'super-secret-key'))
   app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=15)
+  app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
   
   db.init_app(app)
-  with app.app_context():
-    db.create_all()
-  
+  migrate = Migrate(app, db)
   api = Api(app)
   jwt = JWTManager(app)
   
@@ -47,9 +43,12 @@ def createApp(db_url=None):
   def revoked_token_callback(jwt_header, jwt_payload):
     return jsonify({"message": "The token has been revoked.", "error": "token_revoked"}), 401
   
+  @jwt.needs_fresh_token_loader
+  def token_not_fresh_callback(jwt_header, jwt_payload):
+    return jsonify({"message": "The token is not fresh.", "error": "fresh_token_required"}), 401
+  
   @jwt.additional_claims_loader
   def add_claims_to_jwt(identity):
-    # Identity is passed as-is from create_access_token before JSON serialization
     if int(identity) == 1:
       return {'is_admin': True}
     return {'is_admin': False}
@@ -57,7 +56,6 @@ def createApp(db_url=None):
   @jwt.expired_token_loader
   def expired_token_callback(jwt_header, jwt_payload):
     return jsonify({"message": "The token has expired.", "error": "token_expired"}), 401
-  
   
   @jwt.invalid_token_loader
   def invalid_token_callback(error):
@@ -75,5 +73,5 @@ def createApp(db_url=None):
   return app
 
 if __name__ == '__main__':
-  application = createApp()
+  application = create_app()
   application.run(port=3000, debug=True)
